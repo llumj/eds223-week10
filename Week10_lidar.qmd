@@ -1,0 +1,94 @@
+---
+title: "Week 10 Trees"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+library(terra)
+library(sf)
+library(tidyverse)
+library(tmap)
+library(here)
+```
+
+```{r}
+# digital surface model (DSM)
+dsm <- rast(here::here("data", "SJER2013_DSM.tif"))
+
+# digital terrain model (DTM)
+dtm <- rast(here::here("data", "SJER2013_DTM.tif"))
+```
+
+```{r}
+test_raster <- c(dsm, dtm)
+```
+
+
+```{r}
+# Create canopy height model
+chm <- dsm - dtm
+```
+
+```{r}
+# read in plot centroids
+plot_centroids <- st_read(here::here("data", "PlotCentroids", "SJERPlotCentroids_Buffer.shp"))
+```
+
+```{r}
+# test if the plot CRS matches the Lidar CRS
+if(st_crs(plot_centroids) == st_crs(chm)) {
+  print("coordinate reference systems match")
+} else{
+  plot_centroids <- st_transform(plot_centroids, crs = st_crs(chm))
+}
+```
+
+```{r}
+tm_shape(chm) +
+  tm_raster(title = "Digital surface model (m)") +
+  tm_shape(plot_centroids) +
+  tm_polygons()
+```
+
+```{r}
+# read in survey data and find the maximum tree height in each plot
+veg_surveys <- read.csv(here::here("data", "VegetationData", "D17_2013_vegStr.csv")) %>%
+  group_by(plotid) %>%
+  summarise("survey_height" = max(stemheight, na.rm = TRUE))
+```
+
+
+```{r}
+# Now find the maximum tree height in each plot as determined by the CHM:
+extract_chm_height <- terra::extract(chm, plot_centroids, fun = max) %>%
+  rename(chm_height = SJER2013_DSM) %>%
+  select(chm_height)
+```
+
+```{r}
+# Combine tree height estimates from the Lidar and plot surveys:
+plot_centroids <- cbind(plot_centroids, extract_chm_height) %>%
+  left_join(.,veg_surveys, by = c("Plot_ID" = "plotid"))
+```
+
+```{r}
+ggplot(plot_centroids, aes(y=chm_height, x= survey_height)) +
+  geom_abline(slope=1, intercept=0, alpha=.5, lty=2) + #plotting our "1:1" line
+  geom_point() +
+  geom_smooth(method = lm) + # add regression line and confidence interval
+  ggtitle("Validating Lidar measurements") +
+  xlab("Maximum Measured Height (m)") +
+  ylab("Maximum Lidar Height (m)")
+```
+
+
+
+
+
+
+
+
+
